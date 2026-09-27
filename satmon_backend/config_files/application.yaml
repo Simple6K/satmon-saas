@@ -1,0 +1,22 @@
+# Base configuration (local development)
+app:
+  name: satmon_backend
+  env: local
+  debug: true
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  # workers 必须 = 1：APScheduler 为进程内单例，多 worker 会重复触发定时任务
+  workers: 1
+  reload: true
+
+log:
+  level: DEBUG
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# 定时任务配置（示例：每日 00:35，在 app/jobs/scheduler.py 中引用）
+jobs:
+  cron:
+    hour: 0
+    minute: 35

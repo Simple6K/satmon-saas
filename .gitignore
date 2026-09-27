@@ -1,0 +1,20 @@
+# 前端
+frontend/node_modules/
+frontend/dist/
+
+# 后端
+satmon_backend/.venv/
+satmon_backend/__pycache__/
+satmon_backend/**/__pycache__/
+satmon_backend/logs/
+satmon_backend/data/
+satmon_backend/*.log
+satmon_backend/*.pid
+satmon_backend/.pytest_cache/
+satmon_backend/.ruff_cache/
+*.egg-info/
+
+# 工具与系统
+.claude/
+.DS_Store
+/tmp/
