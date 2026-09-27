@@ -40,12 +40,17 @@ const STATUS_META: Record<CheckStatus, { icon: React.ReactNode; color: string; t
   info: { icon: <InfoCircleFilled style={{ color: '#1677ff' }} />, color: 'blue', text: '提示' },
 }
 
-/** 另一演示租户（沙特 MEWA·利雅得）的种子任务 ID；契约 §7 保证其存在且不属本租户（迪拜侧登录时） */
-const DEFAULT_CROSS_TENANT_TASK_ID = 'task-b-1'
+/** 双演示租户互为对方的跨租户种子任务 ID（契约 §7）；按当前登录租户自动取「另一组织」的 ID，
+ *  避免租户 B 用户拿 task-b-1（自己的任务）自检被误报为泄露 */
+const CROSS_TENANT_SEED: Record<string, string> = {
+  dubai_municipality: 'task-b-1',
+  mewa_riyadh: 'task-a-1',
+}
 
 export default function IsolationCheckSection() {
   const { user } = useAuth()
-  const [crossTaskId, setCrossTaskId] = useState(DEFAULT_CROSS_TENANT_TASK_ID)
+  const defaultCrossId = CROSS_TENANT_SEED[user?.tenantId ?? ''] ?? 'task-b-1'
+  const [crossTaskId, setCrossTaskId] = useState(defaultCrossId)
   const [results, setResults] = useState<CheckResult[]>([])
 
   const runCheckMutation = useMutation({
@@ -178,7 +183,7 @@ export default function IsolationCheckSection() {
         <Input
           value={crossTaskId}
           onChange={(e) => setCrossTaskId(e.target.value)}
-          placeholder="填入另一组织的任务 ID（默认种子 task-b-1）"
+          placeholder="填入另一组织的任务 ID（默认按当前租户自动填入对方种子任务）"
           maxLength={40}
           status={crossTaskId.trim() === '' ? 'error' : undefined}
         />

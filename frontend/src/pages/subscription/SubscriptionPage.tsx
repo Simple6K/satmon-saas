@@ -87,7 +87,8 @@ export default function SubscriptionPage() {
       </Col>
 
       <Col span={24}>
-        <IsolationCheckSection />
+        {/* 切换账号/租户时重置自检结果：避免展示上一租户跑出的检查记录，混淆隔离演示 */}
+        <IsolationCheckSection key={user?.id ?? 'anon'} />
       </Col>
 
       <Col span={24}>
