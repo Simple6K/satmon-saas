@@ -11,6 +11,8 @@
  */
 import { message } from 'antd'
 import type { ReportDetail } from './schemas'
+import { apiFetch } from '../../api/client'
+import { bboxFromPolygonCoordinates, getPhaseImage, type BBox, type PhaseImageResult } from './gibsImage'
 
 const JSPDF_CDN = 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js'
 const SCRIPT_TIMEOUT_MS = 8000
@@ -154,7 +156,7 @@ class CanvasPager {
     this.y += 34
   }
 
-  /** 斜纹占位图（AOI 定位截图 / 前后时相影像占位，对齐 MVP「预置占位图」约定） */
+  /** 斜纹占位图（影像不可用时的降级展示，对齐工程原则 4：如实降级） */
   placeholder(x: number, w: number, h: number, label: string): void {
     this.ensure(h + 16)
     const y0 = this.y
@@ -177,6 +179,32 @@ class CanvasPager {
     this.ctx.fillText(label, x + (w - tw) / 2, y0 + h / 2 - 10)
     this.ctx.fillStyle = '#000'
     this.y = y0 + h + 16
+  }
+
+  /** 真实影像（objectURL 图像经 Image 加载后 drawImage，object-fit: cover 语义；下方一行日期标注） */
+  async image(x: number, w: number, h: number, img: PhaseImageResult, caption: string): Promise<void> {
+    this.ensure(h + 30)
+    const y0 = this.y
+    // cover：按目标宽高比裁剪绘制源图（GIBS 出图为正方形）
+    const scale = Math.max(w / img.width, h / img.height)
+    const sw = w / scale
+    const sh = h / scale
+    const sx = (img.width - sw) / 2
+    const sy = (img.height - sh) / 2
+    const bitmap = await loadBitmap(img.url)
+    if (bitmap) {
+      this.ctx.drawImage(bitmap, sx, sy, sw, sh, x, y0, w, h)
+      if ('close' in bitmap) bitmap.close()
+    } else {
+      this.placeholder(x, w, h, '影像加载失败')
+      return
+    }
+    this.ctx.font = `18px ${FONT_STACK}`
+    this.ctx.fillStyle = '#555'
+    const tw = this.ctx.measureText(caption).width
+    this.ctx.fillText(caption, x + (w - tw) / 2, y0 + h + 6)
+    this.ctx.fillStyle = '#000'
+    this.y = y0 + h + 30
   }
 
   /** 横向表头行 */
@@ -230,6 +258,17 @@ class CanvasPager {
   }
 }
 
+/** objectURL → ImageBitmap（失败返回 null，调用方降级占位） */
+async function loadBitmap(url: string): Promise<ImageBitmap | null> {
+  try {
+    const resp = await fetch(url)
+    const blob = await resp.blob()
+    return await createImageBitmap(blob)
+  } catch {
+    return null
+  }
+}
+
 /** canvas 文本按像素宽度拆行 */
 function wrapText(ctx: CanvasRenderingContext2D, text: string, maxW: number): string[] {
   const lines: string[] = []
@@ -274,13 +313,69 @@ export function buildReportFilename(
 }
 
 /**
- * 生成并下载报告 PDF（纯文字排版 + 斜纹占位图）。
- * 失败（CDN 不可达等）抛错，页面统一提示走打印主路径。
+ * 拉取任务结果并返回 patchId → bbox 映射与轻量要素（供举证图与统计矩阵；失败降级为空）。
+ */
+async function fetchPatchBBoxes(taskId: string): Promise<{
+  byPatchId: Map<string, BBox>
+  features: Array<{ patchId: string; changeType: string; alertLevel: string }>
+}> {
+  const byPatchId = new Map<string, BBox>()
+  const features: Array<{ patchId: string; changeType: string; alertLevel: string }> = []
+  try {
+    const raw = await apiFetch<unknown>(`/api/tasks/${encodeURIComponent(taskId)}/results`)
+    const fc = (raw as { geojson?: { features?: unknown[] } }).geojson
+    for (const f of Array.isArray(fc?.features) ? fc.features : []) {
+      const props = (f as { properties?: Record<string, unknown> }).properties
+      const geom = (f as { geometry?: { coordinates?: unknown } }).geometry
+      if (!props || typeof props.patchId !== 'string') continue
+      features.push({
+        patchId: props.patchId,
+        changeType: String(props.changeType ?? '未知'),
+        alertLevel: String(props.alertLevel ?? 'low'),
+      })
+      const bbox = bboxFromPolygonCoordinates(geom?.coordinates)
+      if (bbox) byPatchId.set(props.patchId, bbox)
+    }
+  } catch {
+    // 结果不可达：举证图降级占位、矩阵缺省，导出不中断（工程原则 4）
+  }
+  return { byPatchId, features }
+}
+
+/** 类型 × 告警等级计数矩阵行 */
+function buildTypeLevelMatrix(features: Array<{ changeType: string; alertLevel: string }>): {
+  rows: Array<{ type: string; high: number; medium: number; low: number; total: number }>
+} {
+  const byType = new Map<string, { high: number; medium: number; low: number }>()
+  for (const f of features) {
+    const row = byType.get(f.changeType) ?? { high: 0, medium: 0, low: 0 }
+    if (f.alertLevel === 'high' || f.alertLevel === 'medium' || f.alertLevel === 'low') row[f.alertLevel] += 1
+    byType.set(f.changeType, row)
+  }
+  const rows = [...byType.entries()].map(([type, r]) => ({
+    type,
+    high: r.high,
+    medium: r.medium,
+    low: r.low,
+    total: r.high + r.medium + r.low,
+  }))
+  return { rows }
+}
+
+/**
+ * 生成并下载报告 PDF（文字排版 + GIBS WMS 真实影像 + 统计矩阵）。
+ * 影像与矩阵数据在导出前拉取（与预览共用 gibsImage 模块缓存与 /results 契约端点），
+ * 任一外部依赖失败按占位/缺省降级，不阻断导出。
+ * jsPDF 加载失败（CDN 不可达等）抛错，页面统一提示走打印主路径。
  */
 export async function exportReportPdf(report: ReportDetail, tenantName: string): Promise<string> {
   const JsPdf = await loadJsPdf()
   const { overview, stats, methodology } = report.sections
   reportFooterOrg = `${tenantName} · 卫星遥感监测平台`
+
+  // ---- 前置数据：AOI bbox、斑块 bbox、矩阵（与预览同一数据面） ----
+  const aoiBBox = bboxFromPolygonCoordinates(overview.aoiGeojson?.coordinates)
+  const patchData = await fetchPatchBBoxes(report.taskId)
 
   const pager = new CanvasPager()
   // ---- 封面 / 页眉 ----
@@ -299,32 +394,61 @@ export async function exportReportPdf(report: ReportDetail, tenantName: string):
   pager.kv('云量上限', `${overview.cloudMaxPct}%`)
   pager.kv('影像景数', `${overview.dataSource.sceneCount} 景`)
   pager.body(`数据源：${overview.dataSource.note}`)
-  pager.placeholder(MARGIN, PAGE_W - MARGIN * 2, 320, 'AOI 地图定位截图（占位，打印版含高亮 AOI）')
+  const aoiImg = aoiBBox ? await getPhaseImage(aoiBBox, overview.timeWindow.end) : null
+  if (aoiImg) {
+    await pager.image(MARGIN, PAGE_W - MARGIN * 2, 320, aoiImg, `AOI 定位影像 · ${aoiImg.actualDate}`)
+  } else {
+    pager.placeholder(MARGIN, PAGE_W - MARGIN * 2, 320, 'AOI 定位影像（不可用）')
+  }
 
   // ---- ② 数据源与方法说明 ----
   pager.heading('二、数据源与方法说明')
   pager.body(methodology.note)
+  pager.body(
+    '举证影像说明：斑块前后时相影像取自 NASA GIBS WMS（MODIS 真彩 250m），按斑块外接范围出图；' +
+      '所指日期当日无覆盖时回退至邻近可用日期并在图下标注。',
+  )
 
-  // ---- ③ 变化统计表 ----
-  pager.heading('三、变化统计表（按变化类型）')
+  // ---- ③ 变化统计：类型 × 告警等级矩阵 + byType 表 ----
+  pager.heading('三、变化统计（类型 × 告警等级矩阵）')
   pager.kv('斑块总数', `${stats.patchCount} 个`)
   pager.kv('变化总面积', `${stats.totalAreaKm2.toFixed(4)} km²`)
-  const cols = [
+  const matrix = buildTypeLevelMatrix(patchData.features)
+  if (matrix.rows.length > 0) {
+    pager.tableHeader([
+      { text: '变化类型', w: 340 },
+      { text: '高', w: 160 },
+      { text: '中', w: 160 },
+      { text: '低', w: 160 },
+      { text: '合计', w: 140 },
+    ])
+    for (const r of matrix.rows) {
+      pager.tableRow([
+        { text: r.type, w: 340 },
+        { text: String(r.high), w: 160 },
+        { text: String(r.medium), w: 160 },
+        { text: String(r.low), w: 160 },
+        { text: String(r.total), w: 140 },
+      ])
+    }
+    pager.y += 12
+  }
+  pager.tableHeader([
     { text: '变化类型', w: 380 },
     { text: '斑块数', w: 220 },
     { text: '面积（km²）', w: 260 },
-  ]
-  pager.tableHeader(cols)
+  ])
   for (const row of stats.byType) {
     pager.tableRow([
       { text: row.changeType, w: 380 },
       { text: String(row.count), w: 220 },
       { text: row.areaKm2.toFixed(4), w: 260 },
-  ])
+    ])
   }
 
-  // ---- ④ 重点斑块举证（Top10） ----
+  // ---- ④ 重点斑块举证（Top10，前后时相真实影像） ----
   pager.heading('四、重点斑块举证（Top 10）')
+  const imgW = (PAGE_W - MARGIN * 2 - 20) / 2
   for (const p of stats.top10Patches) {
     pager.ensure(260)
     pager.kv('斑块编号', p.patchId)
@@ -332,15 +456,22 @@ export async function exportReportPdf(report: ReportDetail, tenantName: string):
       `面积 ${p.areaKm2.toFixed(4)} km² · 类型 ${p.changeType} · 置信度 ${(p.confidence * 100).toFixed(0)}%` +
         ` · 告警等级 ${ALERT_LEVEL_LABELS[p.alertLevel] ?? p.alertLevel} · 前时相 ${p.beforeDate} / 后时相 ${p.afterDate}`,
     )
-    pager.placeholder(MARGIN, (PAGE_W - MARGIN * 2 - 20) / 2, 150, '前时相影像（占位）')
-    // 第二张占位图与第一张同行：回退 y 至左侧占位图顶部，在其右侧绘制
-    pager.y -= 166
-    pager.placeholder(
-      MARGIN + (PAGE_W - MARGIN * 2 - 20) / 2 + 20,
-      (PAGE_W - MARGIN * 2 - 20) / 2,
-      150,
-      '后时相影像（占位）',
-    )
+    const bbox = patchData.byPatchId.get(p.patchId) ?? null
+    const before = bbox ? await getPhaseImage(bbox, p.beforeDate) : null
+    const after = bbox ? await getPhaseImage(bbox, p.afterDate) : null
+    const startY = pager.y
+    if (before) {
+      await pager.image(MARGIN, imgW, 150, before, `前时相 ${before.actualDate}`)
+    } else {
+      pager.placeholder(MARGIN, imgW, 150, '前时相影像（不可用）')
+    }
+    // 右图与左图同行：回退 y 到行首，在右侧绘制
+    pager.y = startY
+    if (after) {
+      await pager.image(MARGIN + imgW + 20, imgW, 150, after, `后时相 ${after.actualDate}`)
+    } else {
+      pager.placeholder(MARGIN + imgW + 20, imgW, 150, '后时相影像（不可用）')
+    }
   }
 
   // ---- ⑤ 附录 ----

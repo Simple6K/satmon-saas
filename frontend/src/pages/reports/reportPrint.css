@@ -57,3 +57,24 @@
     break-before: page;
   }
 }
+
+/* 统计矩阵（类型 × 告警等级）：边框与热度底色打印时保留 */
+.report-print-root .report-matrix th,
+.report-print-root .report-matrix td {
+  border: 1px solid #d9d9d9;
+  padding: 6px 10px;
+}
+.report-print-root .report-matrix th {
+  background: #fafafa;
+}
+.report-print-root .report-matrix td[style*="rgba"],
+.report-print-root .report-matrix td {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* 前后时相真实影像：纸面不留边框间隙，颜色精确 */
+.report-print-root .report-phase-img img {
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
