@@ -7,12 +7,53 @@ import { useEffect, useState } from 'react'
 import { Modal, Skeleton, Tag } from 'antd'
 import { ZoomInOutlined } from '@ant-design/icons'
 import { getEsriCurrentImage, getPhaseImage, type BBox, type PhaseImageResult } from './gibsImage'
+import { getWaybackImage, waybackProbeState } from './wayback'
 
 /** 预览缩略图 / 详情大图的出图边长 */
 const THUMB_SIZE = 384
 const DETAIL_SIZE = 1024
 
 type Phase = 'before' | 'after'
+
+/**
+ * 带日期影像（详情弹窗用）：Esri Wayback 高清档案优先，不可达/无图降级 GIBS MODIS。
+ * 返回 viaWayback 供 UI 标注来源。
+ */
+function useDatedImage(
+  bbox: BBox | null,
+  date: string,
+): { img: PhaseImageResult | null; loading: boolean; viaWayback: boolean } {
+  const [state, setState] = useState<{ img: PhaseImageResult | null; viaWayback: boolean }>({
+    img: null,
+    viaWayback: false,
+  })
+  const [loading, setLoading] = useState(true)
+  useEffect(() => {
+    let cancelled = false
+    setState({ img: null, viaWayback: false })
+    if (!bbox) {
+      setLoading(false)
+      return
+    }
+    setLoading(true)
+    void (async () => {
+      let img = await getWaybackImage(bbox, date)
+      let viaWayback = true
+      if (!img) {
+        img = await getPhaseImage(bbox, date, DETAIL_SIZE)
+        viaWayback = false
+      }
+      if (!cancelled) {
+        setState({ img, viaWayback })
+        setLoading(false)
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [bbox?.minLng, bbox?.minLat, bbox?.maxLng, bbox?.maxLat, date])
+  return { ...state, loading }
+}
 
 function usePhaseImage(bbox: BBox | null, date: string, size: number): { img: PhaseImageResult | null; loading: boolean } {
   const [img, setImg] = useState<PhaseImageResult | null>(null)
@@ -70,7 +111,7 @@ function Caption({ children }: { children: React.ReactNode }) {
   )
 }
 
-/** 详情弹窗：前/后 1024px 大图 + Esri 高清现状参考 */
+/** 详情弹窗：前/后高清时相（Wayback 优先 / GIBS 降级）+ Esri 高清现状参考 */
 function PhaseDetailModal({
   open,
   onClose,
@@ -86,11 +127,26 @@ function PhaseDetailModal({
   afterDate: string
   patchId?: string
 }) {
-  const before = usePhaseImage(bbox, beforeDate, DETAIL_SIZE)
-  const after = usePhaseImage(bbox, afterDate, DETAIL_SIZE)
+  const before = useDatedImage(bbox, beforeDate)
+  const after = useDatedImage(bbox, afterDate)
   const esri = useEsriImage(bbox)
+  const [waybackOk, setWaybackOk] = useState<boolean | null>(null)
+  useEffect(() => {
+    let cancelled = false
+    void waybackProbeState().then((ok) => {
+      if (!cancelled) setWaybackOk(ok)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
-  const big = (state: { img: PhaseImageResult | null; loading: boolean }, label: string, date: string, tagColor: string) => (
+  const big = (
+    state: { img: PhaseImageResult | null; loading: boolean; viaWayback: boolean },
+    label: string,
+    date: string,
+    tagColor: string,
+  ) => (
     <div style={{ display: 'grid', gap: 4 }}>
       <div style={{ width: '100%', aspectRatio: '1 / 1', overflow: 'hidden', border: '1px solid #d9d9d9', background: '#fafafa' }}>
         {state.loading ? (
@@ -106,7 +162,16 @@ function PhaseDetailModal({
         {state.img ? (
           <>
             <Tag color={tagColor} style={{ marginInlineEnd: 4 }}>{state.img.actualDate}</Tag>
-            {state.img.actualDate !== date && <span style={{ color: '#faad14' }}>（当日无影像，回退邻近日期）</span>}
+            {state.viaWayback ? (
+              <Tag color="purple" style={{ marginInlineEnd: 4 }}>Esri Wayback 高清</Tag>
+            ) : (
+              <Tag style={{ marginInlineEnd: 4 }}>MODIS 250m</Tag>
+            )}
+            {state.img.actualDate !== date && (
+              <span style={{ color: '#faad14' }}>
+                （{state.viaWayback ? '按就近版本匹配' : '当日无影像，回退邻近日期'}）
+              </span>
+            )}
           </>
         ) : (
           <span>{date}（无可用影像）</span>
@@ -125,11 +190,20 @@ function PhaseDetailModal({
         <span>
           斑块影像详情{patchId ? ` · ${patchId}` : ''}
           <span style={{ fontSize: 12, fontWeight: 400, color: '#999', marginLeft: 10 }}>
-            前后时相：GIBS MODIS 真彩 250m · 现状参考：Esri 高清镶嵌
+            前后时相：Esri Wayback 高清档案（自动降级 GIBS MODIS 250m）· 现状参考：Esri 高清镶嵌
           </span>
         </span>
       }
     >
+      {waybackOk === false && (
+        <div style={{ marginBottom: 10 }}>
+          <Tag color="orange">降级</Tag>
+          <span style={{ fontSize: 12, color: '#8c8c8c' }}>
+            Esri Wayback 高清档案当前网络不可达，前后时相已降级为 GIBS MODIS 250m（有日期、分辨率受限）；
+            网络恢复或部署于可达环境后自动使用高清版本。
+          </span>
+        </div>
+      )}
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
         {big(before, '前时相', beforeDate, 'blue')}
         {big(after, '后时相', afterDate, 'green')}

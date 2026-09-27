@@ -31,6 +31,8 @@ export interface PhaseImageResult {
   actualDate: string
   width: number
   height: number
+  /** 影像来源标记（UI 据此展示高清/降级说明；esri=最新镶嵌现状图） */
+  source?: 'gibs' | 'esri' | 'wayback'
 }
 
 function shiftDate(date: string, days: number): string {
