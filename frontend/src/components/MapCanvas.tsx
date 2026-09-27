@@ -22,7 +22,7 @@ import type { Feature, Polygon } from 'geojson'
 
 // ---------- 图层目录（常量固化） ----------
 
-export type MapLayerKey = 'truecolor' | 'imerg' | 'viirs'
+export type MapLayerKey = 'esri' | 'truecolor' | 'imerg' | 'viirs'
 
 const GIBS_BASE = 'https://gibs.earthdata.nasa.gov/wmts/epsg3857/best'
 
@@ -33,40 +33,64 @@ export interface LayerStatus {
 }
 export type LayerStatusMap = Record<MapLayerKey, LayerStatus>
 
-interface GibsLayerDef {
+interface LayerDef {
   /** UI 显示名 */
   name: string
   /** URL 模板；{date} 由运行时替换 */
   urlTemplate: string
   maxNativeZoom: number
+  /** 图层整体最大显示级别：超过后隐藏（避免瓦片拉伸发糊），底层高清图透出 */
+  maxZoom?: number
   opacity: number
+  attribution: string
 }
 
-export const GIBS_LAYERS: Record<MapLayerKey, GibsLayerDef> = {
+/**
+ * 图层目录。esri 高清底图排在首位（最先加入 → 最底层）：
+ * GIBS MODIS 真彩仅 250m/Level9，放大超过 z9 后瓦片被浏览器拉伸发糊——
+ * 引入 Esri World Imagery（2026-09-27 本机实测 z10–z15 迪拜/利雅得全 200）
+ * 作为高清底座，GIBS 各层（当日影像/降雨/夜光）叠加其上做专题分析。
+ * 取舍：Esri 为合成镶嵌底图（非当日），时相语义仍由 GIBS 日期图层承担。
+ */
+export const LAYER_DEFS: Record<MapLayerKey, LayerDef> = {
+  esri: {
+    name: '高清卫星底图（Esri）',
+    urlTemplate: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    maxNativeZoom: 19,
+    opacity: 1,
+    attribution: 'Esri, Maxar, Earthstar Geographics',
+  },
   // MODIS Terra 真彩，实测固化模板；影像有 1 天左右延迟，默认取昨天
+  // maxZoom 9：超过 z9 隐藏该层（拉伸会发糊），由底层 Esri 高清图接棒
   truecolor: {
-    name: 'MODIS 真彩影像',
+    name: 'MODIS 真彩影像（当日，z≤9）',
     urlTemplate: `${GIBS_BASE}/MODIS_Terra_CorrectedReflectance_TrueColor/default/{date}/GoogleMapsCompatible_Level9/{z}/{y}/{x}.jpg`,
     maxNativeZoom: 9,
+    maxZoom: 9,
     opacity: 1,
+    attribution: 'Imagery courtesy NASA EOSDIS GIBS',
   },
   // IMERG 降雨：TileMatrixSet 必须为 2km（6km 参数实测返回 400，勿改）
   imerg: {
     name: 'IMERG 降雨（2km）',
     urlTemplate: `${GIBS_BASE}/GPM_3IMERGHH_06_run/default/{date}/2km/{z}/{y}/{x}.png`,
     maxNativeZoom: 6,
+    maxZoom: 9,
     opacity: 0.7,
+    attribution: 'Imagery courtesy NASA EOSDIS GIBS',
   },
   // VIIRS 夜光：必须 PNG 且 URL 不带日期段（静态图层，带日期参数反而取不到）
   viirs: {
     name: 'VIIRS 夜光',
     urlTemplate: `${GIBS_BASE}/VIIRS_CityLights_2012/default/GoogleMapsCompatible_Level8/{z}/{y}/{x}.png`,
     maxNativeZoom: 8,
+    maxZoom: 9,
     opacity: 0.85,
+    attribution: 'Imagery courtesy NASA EOSDIS GIBS',
   },
 }
 
-export const MAP_LAYER_KEYS = Object.keys(GIBS_LAYERS) as MapLayerKey[]
+export const MAP_LAYER_KEYS = Object.keys(LAYER_DEFS) as MapLayerKey[]
 
 /** 默认日期：取 3 天前（覆盖 MODIS 与 IMERG 的产品延迟，避免拿空瓦片） */
 function defaultLayerDate(): string {
@@ -188,7 +212,7 @@ const DEFAULT_ZOOM = 10
 export default function MapCanvas({
   center = DEFAULT_CENTER,
   zoom = DEFAULT_ZOOM,
-  activeLayers = ['truecolor'] as MapLayerKey[],
+  activeLayers = ['esri', 'truecolor'] as MapLayerKey[],
   date = defaultLayerDate(),
   onLayerStatusChange,
   onMapReady,
@@ -218,6 +242,7 @@ export default function MapCanvas({
     const map = L.map(containerRef.current, {
       center,
       zoom,
+      maxZoom: 19, // 高清底图能力上限；GIBS 各层在自身 maxZoom 后隐藏避免拉伸
       attributionControl: true,
       worldCopyJump: true,
     })
@@ -255,11 +280,11 @@ export default function MapCanvas({
 
   // 图层状态上报
   function emitStatus() {
-    statusCbRef.current?.({
-      truecolor: { ...statusRef.current.truecolor },
-      imerg: { ...statusRef.current.imerg },
-      viirs: { ...statusRef.current.viirs },
-    })
+    statusCbRef.current?.(
+      Object.fromEntries(
+        MAP_LAYER_KEYS.map((k) => [k, { ...statusRef.current[k] }]),
+      ) as LayerStatusMap,
+    )
   }
 
   // 受控图层同步：activeLayers / date 变化时增删 TileLayer
@@ -279,9 +304,9 @@ export default function MapCanvas({
         }
         continue
       }
-      const def = GIBS_LAYERS[key]
+      const def = LAYER_DEFS[key]
       const url = def.urlTemplate.replace('{date}', date)
-      // 已存在且 URL 未变（日期相同；viirs 本身无日期）则复用，否则重建
+      // 已存在且 URL 未变（日期相同；viirs/esri 本身无日期）则复用，否则重建
       const existingUrl = (existing as unknown as { _url?: string } | undefined)?._url
       if (existing && existingUrl === url) continue
       if (existing) {
@@ -290,8 +315,9 @@ export default function MapCanvas({
       }
       const layer = new ThrottledTileLayer(url, {
         maxNativeZoom: def.maxNativeZoom,
+        maxZoom: def.maxZoom,
         opacity: def.opacity,
-        attribution: 'Imagery courtesy NASA EOSDIS GIBS',
+        attribution: def.attribution,
         // 失败瓦片不重试（无边界重试会掩盖外部源故障，工程原则 4）
         // Leaflet 本身对 tileerror 不做自动重试，满足约束
       })

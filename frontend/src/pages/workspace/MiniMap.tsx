@@ -11,7 +11,7 @@ import { Alert, Button, Card, Checkbox, DatePicker, Space, Spin, Typography, mes
 import { ReloadOutlined } from '@ant-design/icons'
 import dayjs, { type Dayjs } from 'dayjs'
 import MapCanvas, {
-  GIBS_LAYERS,
+  LAYER_DEFS,
   MAP_LAYER_KEYS,
   type LayerStatusMap,
   type MapLayerKey,
@@ -30,7 +30,7 @@ const TENANT_CENTER: Record<string, [number, number]> = {
 
 export default function MiniMap() {
   const { user } = useAuth()
-  const [activeLayers, setActiveLayers] = useState<MapLayerKey[]>(['truecolor'])
+  const [activeLayers, setActiveLayers] = useState<MapLayerKey[]>(['esri', 'truecolor'])
   const [date, setDate] = useState<string>(DEFAULT_DATE())
   const [layerStatus, setLayerStatus] = useState<LayerStatusMap | null>(null)
   /** 递增即整图重建，用于瓦片失败后的显式重试 */
@@ -48,7 +48,7 @@ export default function MiniMap() {
     return {
       anyLoading: entries.some(([, s]) => s?.loading),
       anyError: entries.some(([, s]) => s?.error),
-      errorNames: entries.filter(([, s]) => s?.error).map(([k]) => GIBS_LAYERS[k].name),
+      errorNames: entries.filter(([, s]) => s?.error).map(([k]) => LAYER_DEFS[k].name),
     }
   }, [activeLayers, layerStatus])
 
@@ -65,7 +65,7 @@ export default function MiniMap() {
     >
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 12, marginBottom: 8, alignItems: 'center' }}>
         <Checkbox.Group
-          options={MAP_LAYER_KEYS.map((k) => ({ label: GIBS_LAYERS[k].name, value: k }))}
+          options={MAP_LAYER_KEYS.map((k) => ({ label: LAYER_DEFS[k].name, value: k }))}
           value={activeLayers}
           onChange={(vals) => setActiveLayers(vals as MapLayerKey[])}
         />

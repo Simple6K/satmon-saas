@@ -1,0 +1,27 @@
+services:
+  backend:
+    build: ./satmon_backend
+    image: satmon-backend:latest
+    container_name: satmon-backend
+    environment:
+      - ENV_NAME=prod
+    volumes:
+      - satmon_data:/app/data      # SQLite 持久化（种子数据启动时幂等灌入）
+      - satmon_logs:/app/logs
+    restart: unless-stopped
+    # 不对宿主暴露端口：经前端 nginx 反代访问，减少攻击面
+
+  frontend:
+    build: ./frontend
+    image: satmon-frontend:latest
+    container_name: satmon-frontend
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  satmon_data:
+  satmon_logs:

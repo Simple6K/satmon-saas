@@ -44,7 +44,7 @@ import {
   TaskSummarySchema,
 } from '../../api/types'
 import { useAuth } from '../../auth/AuthContext'
-import { GIBS_LAYERS, MAP_LAYER_KEYS, type LayerStatusMap, type MapLayerKey } from '../../components/MapCanvas'
+import { LAYER_DEFS, MAP_LAYER_KEYS, type LayerStatusMap, type MapLayerKey } from '../../components/MapCanvas'
 import PatchMap, { type PatchFocus } from './PatchMap'
 import PatchList from './PatchList'
 import PatchDetailCard from './PatchDetailCard'
@@ -121,7 +121,7 @@ export default function TaskResultsPage() {
   const [focus, setFocus] = useState<PatchFocus | null>(null)
   const [opacityPct, setOpacityPct] = useState(60)
   const [compareMode, setCompareMode] = useState<'before' | 'after'>('after')
-  const [activeLayers, setActiveLayers] = useState<MapLayerKey[]>(['truecolor'])
+  const [activeLayers, setActiveLayers] = useState<MapLayerKey[]>(['esri', 'truecolor'])
   const [layerStatus, setLayerStatus] = useState<LayerStatusMap | null>(null)
   /** 递增即整图重建：GIBS 瓦片失败后的显式重试（瓦片层不自动重试，工程原则 4） */
   const [retryKey, setRetryKey] = useState(0)
@@ -179,7 +179,7 @@ export default function TaskResultsPage() {
     return {
       anyLoading: entries.some(([, s]) => s?.loading),
       anyError: entries.some(([, s]) => s?.error),
-      errorNames: entries.filter(([, s]) => s?.error).map(([k]) => GIBS_LAYERS[k].name),
+      errorNames: entries.filter(([, s]) => s?.error).map(([k]) => LAYER_DEFS[k].name),
     }
   }, [activeLayers, layerStatus])
 
@@ -387,7 +387,7 @@ export default function TaskResultsPage() {
                   />
                 </div>
                 <Checkbox.Group
-                  options={MAP_LAYER_KEYS.map((k) => ({ label: GIBS_LAYERS[k].name, value: k }))}
+                  options={MAP_LAYER_KEYS.map((k) => ({ label: LAYER_DEFS[k].name, value: k }))}
                   value={activeLayers}
                   onChange={(vals) => setActiveLayers(vals as MapLayerKey[])}
                 />
