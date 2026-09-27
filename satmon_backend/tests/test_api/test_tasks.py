@@ -25,7 +25,8 @@ async def test_create_task_queued(client):
     assert data["stage"]["current"] == "queued"
     assert data["aoi"]["name"] == "迪拜海岸带"
 
-    audits = (await client.get("/api/audit-logs", headers=headers)).json()["data"]
+    # 审计日志仅 tenant_admin 可见（PRD US-12），用同租户管理员账号验证
+    audits = (await client.get("/api/audit-logs", headers=await _auth(client, "khalid"))).json()["data"]
     assert any(a["action"] == "任务创建" and "海岸带复核任务" in a["detail"] for a in audits)
 
 

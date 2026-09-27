@@ -198,8 +198,8 @@ async def create_member(request: MemberCreateRequest, user: dict = Depends(requi
 @router.get("/audit-logs")
 @assemble_response
 async def list_audit_logs(limit: int = Query(50, ge=1, le=200),
-                          user: dict = Depends(current_user)):
-    """本租户审计日志（按时间倒序）。"""
+                          user: dict = Depends(require_tenant_admin)):
+    """本租户审计日志（按时间倒序）。PRD US-12：审计日志仅租户管理员可见。"""
     with db() as conn:
         rows = conn.execute(
             "SELECT at, actor, action, detail FROM audit_logs WHERE tenant_id = ?"
