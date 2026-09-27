@@ -66,7 +66,7 @@ function loadReleases(): Promise<Release[] | null> {
   return configPromise
 }
 
-/** 探测瓦片域名可达性（探利雅得区域 z8 瓦片 160/110；结果全会话缓存） */
+/** 探测瓦片域名可达性（沙特中部 z8 瓦片 110/160(row/col)；只验域名可达性，与业务区域无关；结果全会话缓存） */
 async function probeTiles(): Promise<boolean> {
   try {
     const releases = await loadReleases()
