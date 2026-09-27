@@ -1,0 +1,8 @@
+/*
+ * 工作台小地图是只读概览（AOI 绘制入口在「监测任务」页）：
+ * 隐藏 MapCanvas 自带的 geoman 绘制/编辑工具条。
+ * 仅作用于 .workspace-minimap 后代，不影响任务创建等其他页面的地图。
+ */
+.workspace-minimap .leaflet-pm-toolbar {
+  display: none;
+}

@@ -9,13 +9,14 @@ from app.server.router import api_router
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    """应用启动/关闭钩子：初始化存储、启停定时任务。
+    """应用启动/关闭钩子：初始化存储与种子数据、启停定时任务。
 
     注意：httpx ASGITransport（测试客户端）不触发 lifespan——测试环境不会启动调度器、
-    不会执行初始化；需要库表的测试请在 fixture 中自行调用 init_schema()。
+    不会执行初始化；需要库表与种子的测试请在 fixture 中自行调用 init_database()
+    （见 tests/conftest.py 的 temp_db fixture）。
     """
-    from app.db.sqlite import init_schema
-    init_schema()
+    from app.db.seed import init_database
+    init_database()
     from app.jobs.scheduler import shutdown_scheduler, start_scheduler
     start_scheduler()
     yield
@@ -29,6 +30,16 @@ def create_app() -> FastAPI:
         description="卫星遥感监测 SaaS 平台后端（多租户订阅/监测任务/影像检索/变化检测/报告）",
         version="0.1.0",
         lifespan=lifespan,
+    )
+
+    # CORS：仅放行 Vite dev 源（契约 §0）
+    from fastapi.middleware.cors import CORSMiddleware
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
     )
 
     # 注册路由

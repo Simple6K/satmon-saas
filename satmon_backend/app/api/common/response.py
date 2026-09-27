@@ -15,6 +15,7 @@ class StatusCode(IntEnum):
     PARAM_MISSING = 1001
     PARAM_FORMAT_ERROR = 1002
     PARAM_INVALID = 1003
+    AUTH_REQUIRED = 1004  # 未认证/认证失效（token 缺失、无效或用户不存在）
 
     # 业务异常 (2xxx)
     BUSINESS_ERROR = 2000

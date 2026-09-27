@@ -1,0 +1,23 @@
+/* 结果页局部样式：地图为只读结果视图，隐藏 geoman 绘制工具条（AOI 绘制只在任务创建页） */
+.results-map .leaflet-pm-toolbar {
+  display: none;
+}
+
+.results-map-legend {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-top: 8px;
+  font-size: 12px;
+  color: rgba(0, 0, 0, 0.65);
+}
+
+.results-map-legend .dot {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  margin-right: 4px;
+  vertical-align: -1px;
+}

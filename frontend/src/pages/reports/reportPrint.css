@@ -1,0 +1,59 @@
+/*
+ * 报告打印样式（US-09 主导出路径：print-CSS + window.print）。
+ * 方案：屏幕上的预览只是视觉效果；导出时组件经 React portal 在 <body> 下
+ * 渲染一份 .report-print-portal 副本，@media print 时隐藏 #root 整棵应用壳，
+ * 仅保留该副本——脱离布局容器的限制，按 @page A4 自然分页。
+ * （曾用「body * visibility:hidden + 绝对定位叠加」方案，实测打印时绝对定位
+ * 内容只落在第一页、后续章节被截断，故弃用。）
+ * 占位斜纹等图形需 print-color-adjust: exact 才会出现在纸面。
+ */
+
+/* 章节标题：屏幕与纸面统一 */
+.report-print-root .report-section-title {
+  font-size: 16px;
+  font-weight: 600;
+  margin: 20px 0 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #d9d9d9;
+}
+
+/* 斜纹占位图（AOI 定位 / 前后时相影像占位） */
+.report-print-root .report-placeholder {
+  position: relative;
+  border: 1px dashed #bbb;
+  background: repeating-linear-gradient(45deg, #fafafa, #fafafa 8px, #f0f0f0 8px, #f0f0f0 16px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 12px;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* 屏幕上打印副本不可见 */
+.report-print-portal {
+  display: none;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+
+  /* 隐藏应用壳（含 antd 挂在 body 下的 message 容器） */
+  #root,
+  .ant-message {
+    display: none !important;
+  }
+
+  .report-print-portal {
+    display: block !important;
+  }
+
+  /* 概述之后每个主要章节换页（对应 PRD 报告章节结构） */
+  .report-page-break {
+    break-before: page;
+  }
+}

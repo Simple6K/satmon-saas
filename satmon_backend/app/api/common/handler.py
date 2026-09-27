@@ -4,17 +4,28 @@ import traceback
 from fastapi import HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.api.common.exceptions import BusinessException
+from app.api.common.exceptions import ApiHTTPException, BusinessException
 from app.api.common.response import ResponseModel, StatusCode
 from app.log.log import logger
 
 # HTTPException → 统一信封业务码映射：4xx 不再返回 {"detail": ...} 裸格式，
 # 前端始终拿到 {code, msg, data}，同时保留原 HTTP 状态码。
-_HTTP_CODE_MAP = {400: StatusCode.PARAM_INVALID, 404: StatusCode.RESOURCE_NOT_FOUND}
+_HTTP_CODE_MAP = {
+    400: StatusCode.PARAM_INVALID,
+    401: StatusCode.AUTH_REQUIRED,
+    403: StatusCode.PERMISSION_DENIED,
+    404: StatusCode.RESOURCE_NOT_FOUND,
+}
 
 
 def register_exception_handlers(app):
     """注册全局异常处理器到 FastAPI 应用。"""
+
+    @app.exception_handler(ApiHTTPException)
+    async def api_http_exception_handler(request: Request, exc: ApiHTTPException):
+        logger.warning(f"API 异常: {exc.msg} (http={exc.status_code}, code={exc.code})")
+        response = ResponseModel(code=exc.code, msg=exc.msg, data=exc.data)
+        return JSONResponse(status_code=exc.status_code, content=response.model_dump())
 
     @app.exception_handler(BusinessException)
     async def business_exception_handler(request: Request, exc: BusinessException):

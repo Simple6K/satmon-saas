@@ -20,13 +20,14 @@ async def client(app):
 
 @pytest.fixture(autouse=True)
 def temp_db(tmp_path, monkeypatch):
-    """测试库指向临时目录，避免污染真实 data/*.db。
+    """测试库指向临时目录，避免污染真实 data/*.db；建表并灌入种子数据。
 
     注意：DB_PATH 必须经模块属性访问（db 模块内不用 from-import 提前绑定），
     monkeypatch 才能生效。
     """
     from app.db import sqlite as sqlite_store
+    from app.db.seed import init_database
 
     monkeypatch.setattr(sqlite_store, "DB_PATH", tmp_path / "app.db")
-    sqlite_store.init_schema()
+    init_database()
     yield
