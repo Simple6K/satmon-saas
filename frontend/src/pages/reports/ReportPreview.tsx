@@ -337,6 +337,7 @@ export default function ReportPreview({ report, tenantName }: ReportPreviewProps
                   bbox={patchBBoxById.get(p.patchId) ?? null}
                   beforeDate={p.beforeDate}
                   afterDate={p.afterDate}
+                  patchId={p.patchId}
                 />
               </Card>
             </Col>

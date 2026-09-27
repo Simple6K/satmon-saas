@@ -39,7 +39,7 @@ function shiftDate(date: string, days: number): string {
   return d.toISOString().slice(0, 10)
 }
 
-function buildUrl(bbox: BBox, date: string): string {
+function buildUrl(bbox: BBox, date: string, size: number): string {
   const b = `${bbox.minLng.toFixed(4)},${bbox.minLat.toFixed(4)},${bbox.maxLng.toFixed(4)},${bbox.maxLat.toFixed(4)}`
   const params = new URLSearchParams({
     VERSION: '1.1.1',
@@ -48,8 +48,8 @@ function buildUrl(bbox: BBox, date: string): string {
     LAYERS: LAYER,
     STYLES: '',
     FORMAT: 'image/jpeg',
-    WIDTH: String(IMG_SIZE),
-    HEIGHT: String(IMG_SIZE),
+    WIDTH: String(size),
+    HEIGHT: String(size),
     SRS: 'EPSG:4326',
     BBOX: b,
     TIME: date,
@@ -88,25 +88,26 @@ async function isBlankImage(blob: Blob): Promise<boolean> {
 /** 模块级缓存：预览与 PDF 导出共用，避免同图重复拉取 */
 const cache = new Map<string, PhaseImageResult | null>()
 
-function cacheKey(bbox: BBox, date: string): string {
-  return `${bbox.minLng.toFixed(3)},${bbox.minLat.toFixed(3)},${bbox.maxLng.toFixed(3)},${bbox.maxLat.toFixed(3)}@${date}`
+function cacheKey(bbox: BBox, date: string, size: number): string {
+  return `${bbox.minLng.toFixed(3)},${bbox.minLat.toFixed(3)},${bbox.maxLng.toFixed(3)},${bbox.maxLat.toFixed(3)}@${date}@${size}`
 }
 
 /**
  * 取指定范围与日期的影像；当天无数据时按日向前回退（最多 MAX_DATE_FALLBACK 次）。
+ * size 控制出图边长（预览 384 / 详情弹窗 1024）。
  * 返回 null 表示不可用（网络失败 / 连续空白），调用方展示降级占位。
  */
-export async function getPhaseImage(bbox: BBox, date: string): Promise<PhaseImageResult | null> {
+export async function getPhaseImage(bbox: BBox, date: string, size = IMG_SIZE): Promise<PhaseImageResult | null> {
   for (let back = 0; back <= MAX_DATE_FALLBACK; back++) {
     const actualDate = shiftDate(date, back)
-    const key = cacheKey(bbox, actualDate)
+    const key = cacheKey(bbox, actualDate, size)
     if (cache.has(key)) return cache.get(key) ?? null
 
     let result: PhaseImageResult | null = null
     try {
       const controller = new AbortController()
       const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
-      const resp = await fetch(buildUrl(bbox, actualDate), { signal: controller.signal })
+      const resp = await fetch(buildUrl(bbox, actualDate, size), { signal: controller.signal })
       clearTimeout(timer)
       if (resp.ok) {
         const blob = await resp.blob()
@@ -114,8 +115,8 @@ export async function getPhaseImage(bbox: BBox, date: string): Promise<PhaseImag
           result = {
             url: URL.createObjectURL(blob),
             actualDate,
-            width: IMG_SIZE,
-            height: IMG_SIZE,
+            width: size,
+            height: size,
           }
         }
       }
@@ -126,6 +127,41 @@ export async function getPhaseImage(bbox: BBox, date: string): Promise<PhaseImag
     if (result) return result
   }
   return null
+}
+
+const ESRI_EXPORT = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/export'
+
+/**
+ * Esri World Imagery 静态高清现状图（2026-09-28 实测：1024px 约 0.5MB / 1.8s）。
+ * 注意：Esri 为最新合成镶嵌（无日期维度），仅作「现状高清参考」，时相语义仍由 GIBS 承担。
+ */
+export async function getEsriCurrentImage(bbox: BBox, size = 1024): Promise<PhaseImageResult | null> {
+  const key = cacheKey(bbox, 'esri-current', size)
+  if (cache.has(key)) return cache.get(key) ?? null
+  let result: PhaseImageResult | null = null
+  try {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS)
+    const params = new URLSearchParams({
+      bbox: `${bbox.minLng.toFixed(4)},${bbox.minLat.toFixed(4)},${bbox.maxLng.toFixed(4)},${bbox.maxLat.toFixed(4)}`,
+      bboxSR: '4326',
+      size: `${size},${size}`,
+      format: 'jpg',
+      f: 'image',
+    })
+    const resp = await fetch(`${ESRI_EXPORT}?${params}`, { signal: controller.signal })
+    clearTimeout(timer)
+    if (resp.ok) {
+      const blob = await resp.blob()
+      if (blob.type.startsWith('image/')) {
+        result = { url: URL.createObjectURL(blob), actualDate: '', width: size, height: size }
+      }
+    }
+  } catch {
+    result = null
+  }
+  cache.set(key, result)
+  return result
 }
 
 /** GeoJSON Polygon 坐标 → 外接 BBox（含 ~20% 边距，举证图不至于贴边） */
