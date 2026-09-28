@@ -27,17 +27,6 @@ except ImportError:
 
 from .utils import parse_to_dict
 
-# Apollo配置
-#
-# # 默认Apollo客户端配置（供AnntoApolloClient使用）
-# DEFAULT_APOLLO_CONFIG = {
-#     'meta_server_address': config["url"],
-#     'app_id': config["app_id"],
-#     'app_secret': config["authorization"],
-#     'namespaces': ["python.yaml"],
-#     'cache_file_dir_path': "config_files"
-# }
-
 
 class AnntoApolloClient(ApolloClient):
     def __init__(self, *args, **kwargs):
