@@ -498,6 +498,7 @@ source = { editable = "." }
 dependencies = [
     { name = "apscheduler" },
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "loguru" },
     { name = "pydantic" },
     { name = "pyyaml" },
@@ -517,6 +518,7 @@ dev = [
 requires-dist = [
     { name = "apscheduler", specifier = ">=3.10,<4" },
     { name = "fastapi", specifier = ">=0.115.0" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "loguru", specifier = ">=0.7" },
     { name = "pydantic", specifier = ">=2.0" },
     { name = "pyyaml", specifier = ">=6.0" },

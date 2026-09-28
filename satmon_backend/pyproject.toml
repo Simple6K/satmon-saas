@@ -11,6 +11,8 @@ dependencies = [
     "apscheduler>=3.10,<4",
     # AOI 多边形有效性校验与 4326 面积计算（契约 §3）
     "shapely>=2.0",
+    # 数据源适配层运行时依赖（容器 --no-dev 安装，此前误置于 dev 依赖）
+    "httpx>=0.27",
     # anntoconfig / anntologger 为项目内 vendored 包（anntoconfig/、anntologger/ 目录），
     # 此处只需其运行依赖；内网镜像不可达，统一走公网源
     "pyyaml>=6.0",
