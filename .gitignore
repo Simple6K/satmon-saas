@@ -18,3 +18,4 @@ satmon_backend/.ruff_cache/
 .claude/
 .DS_Store
 /tmp/
+会话记录-*.jsonl
